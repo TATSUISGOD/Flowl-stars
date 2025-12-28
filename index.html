@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ミニブロスタ v2</title>
+<style>
+body { margin:0; overflow:hidden; background:#111; touch-action:none; }
+canvas { display:block; }
+
+/* UI */
+#topUI {
+  position:fixed; top:5px; left:50%; transform:translateX(-50%);
+  color:white; text-align:center; z-index:10;
+}
+.bar {
+  width:200px; height:12px; background:#333; border-radius:6px; overflow:hidden; margin:4px auto;
+}
+.bar > div {
+  height:100%; background:lime;
+}
+#ultBar > div { background:gold; }
+
+#leftPad, #rightPad {
+  position:fixed; bottom:20px; width:40%; height:40%; opacity:0.08;
+}
+#leftPad { left:0; background:cyan; }
+#rightPad { right:0; background:red; }
+
+#buttons {
+  position:fixed; right:10px; top:80px; z-index:10;
+}
+button {
+  display:block; margin:6px 0; padding:8px;
+}
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="topUI">
+  <div id="modeText">MODE: SURVIVAL</div>
+  <div class="bar"><div id="hpBar"></div></div>
+  <div class="bar" id="ultBar"><div></div></div>
+</div>
+
+<div id="buttons">
+  <button onclick="useUlt()">ULT</button>
+  <button onclick="setMode('survival')">SURV</button>
+  <button onclick="setMode('boss')">BOSS</button>
+  <button onclick="setMode('practice')">PRAC</button>
+</div>
+
+<div id="leftPad"></div>
+<div id="rightPad"></div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+canvas.width = innerWidth;
+canvas.height = innerHeight;
+
+const map = { w:2000, h:2000 };
+const camera = { x:0, y:0 };
+
+let mode = "survival";
+const modeText = document.getElementById("modeText");
+
+const player = {
+  x:1000,y:1000,r:15,
+  hp:100,maxHp:100,
+  ult:0
+};
+
+let enemy = {};
+let enemies = [];
+
+function spawnEnemy(power=1){
+  return {
+    x:Math.random()*map.w,
+    y:Math.random()*map.h,
+    r:15,
+    hp:50*power,
+    speed:1.5+power*0.2,
+    power
+  };
+}
+
+function setMode(m){
+  mode=m;
+  modeText.textContent="MODE: "+m.toUpperCase();
+  enemies=[];
+  if(m==="boss"){
+    enemy={x:1200,y:1200,r:30,hp:500,speed:1};
+  }
+}
+
+setMode("survival");
+
+const bullets=[];
+let moveTouch=null;
+
+canvas.addEventListener("touchstart",e=>{
+  for(const t of e.touches){
+    if(t.clientX<innerWidth/2) moveTouch=t;
+    else shoot(t.clientX,t.clientY);
+  }
+});
+canvas.addEventListener("touchmove",e=>{
+  for(const t of e.touches)
+    if(moveTouch && t.identifier===moveTouch.identifier)
+      moveTouch=t;
+});
+canvas.addEventListener("touchend",()=>moveTouch=null);
+
+function shoot(x,y){
+  const a=Math.atan2(y-innerHeight/2,x-innerWidth/2);
+  bullets.push({
+    x:player.x,y:player.y,
+    vx:Math.cos(a)*8,
+    vy:Math.sin(a)*8,
+    dmg:10
+  });
+}
+
+function useUlt(){
+  if(player.ult<100) return;
+  player.ult=0;
+  for(let i=0;i<20;i++){
+    const a=i*Math.PI/10;
+    bullets.push({
+      x:player.x,y:player.y,
+      vx:Math.cos(a)*6,
+      vy:Math.sin(a)*6,
+      dmg:25
+    });
+  }
+}
+
+function update(){
+  if(moveTouch){
+    const dx=moveTouch.clientX-innerWidth/2;
+    const dy=moveTouch.clientY-innerHeight/2;
+    const d=Math.hypot(dx,dy);
+    if(d>10){
+      player.x+=dx/d*4;
+      player.y+=dy/d*4;
+    }
+  }
+
+  if(mode==="survival"){
+    if(enemies.length<3) enemies.push(spawnEnemy(1+enemies.length*0.5));
+    enemies.forEach(e=>{
+      const dx=player.x-e.x, dy=player.y-e.y;
+      const d=Math.hypot(dx,dy);
+      e.x+=dx/d*e.speed; e.y+=dy/d*e.speed;
+    });
+  }
+
+  if(mode==="boss"){
+    const dx=player.x-enemy.x, dy=player.y-enemy.y;
+    const d=Math.hypot(dx,dy);
+    enemy.x+=dx/d*enemy.speed;
+    enemy.y+=dy/d*enemy.speed;
+  }
+
+  bullets.forEach((b,i)=>{
+    b.x+=b.vx; b.y+=b.vy;
+    const targets = mode==="boss" ? [enemy] : enemies;
+    targets.forEach((e,ei)=>{
+      if(e && Math.hypot(b.x-e.x,b.y-e.y)<e.r){
+        e.hp-=b.dmg;
+        player.ult=Math.min(100,player.ult+5);
+        bullets.splice(i,1);
+        if(e.hp<=0 && mode==="survival") enemies.splice(ei,1);
+      }
+    });
+  });
+
+  if(mode!=="practice")
+    player.hp=Math.min(player.maxHp,player.hp+0.02);
+
+  camera.x=player.x-innerWidth/2;
+  camera.y=player.y-innerHeight/2;
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.save();
+  ctx.translate(-camera.x,-camera.y);
+
+  ctx.fillStyle="#222";
+  ctx.fillRect(0,0,map.w,map.h);
+
+  ctx.fillStyle="cyan";
+  ctx.beginPath();
+  ctx.arc(player.x,player.y,player.r,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle="red";
+  if(mode==="boss"){
+    ctx.beginPath();
+    ctx.arc(enemy.x,enemy.y,enemy.r,0,Math.PI*2);
+    ctx.fill();
+  } else {
+    enemies.forEach(e=>{
+      ctx.beginPath();
+      ctx.arc(e.x,e.y,e.r,0,Math.PI*2);
+      ctx.fill();
+    });
+  }
+
+  ctx.fillStyle="yellow";
+  bullets.forEach(b=>{
+    ctx.beginPath();
+    ctx.arc(b.x,b.y,4,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  ctx.restore();
+
+  document.getElementById("hpBar").style.width =
+    (player.hp/player.maxHp*100)+"%";
+  document.querySelector("#ultBar div").style.width =
+    player.ult+"%";
+}
+
+(function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
